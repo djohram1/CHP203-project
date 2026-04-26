@@ -166,6 +166,7 @@ void compute_outflow_zou_he_const_density(lbm_mesh_cell_t cell) {
 
 void special_cells(Mesh* mesh, lbm_mesh_type_t* mesh_type, const lbm_comm_t* mesh_comm) {
   // Loop on all inner cells
+  #pragma omp parallel for collapse(2)
   for (size_t i = 1; i < mesh->width - 1; i++) {
     for (size_t j = 1; j < mesh->height - 1; j++) {
       switch (*(lbm_cell_type_t_get_cell(mesh_type, i, j))) {
@@ -190,6 +191,7 @@ void collision(Mesh* mesh_out, const Mesh* mesh_in) {
   assert(mesh_in->height == mesh_out->height);
 
   // Loop on all inner cells
+  #pragma omp parallel for collapse(2)
   for (size_t j = 1; j < mesh_in->height - 1; j++) {
     for (size_t i = 1; i < mesh_in->width - 1; i++) {
       compute_cell_collision(Mesh_get_cell(mesh_out, i, j), Mesh_get_cell(mesh_in, i, j));
@@ -199,6 +201,7 @@ void collision(Mesh* mesh_out, const Mesh* mesh_in) {
 
 void propagation(Mesh* mesh_out, const Mesh* mesh_in) {
   // Loop on all cells
+  #pragma omp parallel for collapse(2)
   for (size_t j = 0; j < mesh_out->height; j++) {
     for (size_t i = 0; i < mesh_out->width; i++) {
       // For all direction
