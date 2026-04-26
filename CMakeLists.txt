@@ -8,6 +8,8 @@ project(
   HOMEPAGE_URL "https://dssgabriel.github.io/CHP203-TOP/project"
 )
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+
 find_package(MPI 3.0 REQUIRED)
 find_package(OpenMP 4.0 REQUIRED)
 include(cmake/third-party.cmake)
