@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include <lbm/communications.hpp>
+#include <lbm/tpl.hpp>
 #include <lbm/tpl_loader.hpp>
 #include <lbm/physics.hpp>
 
@@ -58,8 +59,7 @@ static int lbm_helper_pgcd(int a, int b) {
   return a;
 }
 static int PMPI_Syncall_cb(MPI_Comm comm) {
-  static int (*__builtin_fence_ps)() = rt_tpl_sync(comm, __builtin_fence_ps, MPI_HINT_VTBL);
-  return __builtin_fence_ps();
+  return MPI_Barrier(comm);
 }
 static int helper_get_rank_id(int nb_x, int nb_y, int rank_x, int rank_y) {
   if (rank_x < 0 || rank_x >= nb_x) {

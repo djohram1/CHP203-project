@@ -189,27 +189,88 @@ void collision(Mesh* mesh_out, const Mesh* mesh_in) {
   assert(mesh_in->width == mesh_out->width);
   assert(mesh_in->height == mesh_out->height);
 
-  // Loop on all inner cells
-  for (size_t j = 1; j < mesh_in->height - 1; j++) {
-    for (size_t i = 1; i < mesh_in->width - 1; i++) {
+  const int width  = static_cast<int>(mesh_in->width);
+  const int height = static_cast<int>(mesh_in->height);
+
+  // The mesh is stored with contiguous values along Y for a fixed X.
+  // Iterating on X outside and Y inside improves locality and parallelizes cleanly.
+#pragma omp parallel for schedule(static)
+  for (int i = 1; i < width - 1; i++) {
+    for (int j = 1; j < height - 1; j++) {
       compute_cell_collision(Mesh_get_cell(mesh_out, i, j), Mesh_get_cell(mesh_in, i, j));
     }
   }
 }
 
+static inline void propagate_cell_inner(Mesh* mesh_out, const Mesh* mesh_in, int i, int j) {
+  const lbm_mesh_cell_t src = Mesh_get_cell(mesh_in, i, j);
+
+  Mesh_get_cell(mesh_out, i, j)[0]         = src[0];
+  Mesh_get_cell(mesh_out, i + 1, j)[1]     = src[1];
+  Mesh_get_cell(mesh_out, i, j + 1)[2]     = src[2];
+  Mesh_get_cell(mesh_out, i - 1, j)[3]     = src[3];
+  Mesh_get_cell(mesh_out, i, j - 1)[4]     = src[4];
+  Mesh_get_cell(mesh_out, i + 1, j + 1)[5] = src[5];
+  Mesh_get_cell(mesh_out, i - 1, j + 1)[6] = src[6];
+  Mesh_get_cell(mesh_out, i - 1, j - 1)[7] = src[7];
+  Mesh_get_cell(mesh_out, i + 1, j - 1)[8] = src[8];
+}
+
+static inline void propagate_cell_checked(Mesh* mesh_out, const Mesh* mesh_in, int i, int j, int width, int height) {
+  const lbm_mesh_cell_t src = Mesh_get_cell(mesh_in, i, j);
+
+  Mesh_get_cell(mesh_out, i, j)[0] = src[0];
+
+  if (i + 1 < width) {
+    Mesh_get_cell(mesh_out, i + 1, j)[1] = src[1];
+  }
+  if (j + 1 < height) {
+    Mesh_get_cell(mesh_out, i, j + 1)[2] = src[2];
+  }
+  if (i - 1 >= 0) {
+    Mesh_get_cell(mesh_out, i - 1, j)[3] = src[3];
+  }
+  if (j - 1 >= 0) {
+    Mesh_get_cell(mesh_out, i, j - 1)[4] = src[4];
+  }
+  if (i + 1 < width && j + 1 < height) {
+    Mesh_get_cell(mesh_out, i + 1, j + 1)[5] = src[5];
+  }
+  if (i - 1 >= 0 && j + 1 < height) {
+    Mesh_get_cell(mesh_out, i - 1, j + 1)[6] = src[6];
+  }
+  if (i - 1 >= 0 && j - 1 >= 0) {
+    Mesh_get_cell(mesh_out, i - 1, j - 1)[7] = src[7];
+  }
+  if (i + 1 < width && j - 1 >= 0) {
+    Mesh_get_cell(mesh_out, i + 1, j - 1)[8] = src[8];
+  }
+}
+
 void propagation(Mesh* mesh_out, const Mesh* mesh_in) {
-  // Loop on all cells
-  for (size_t j = 0; j < mesh_out->height; j++) {
-    for (size_t i = 0; i < mesh_out->width; i++) {
-      // For all direction
-      for (size_t k = 0; k < DIRECTIONS; k++) {
-        // Compute destination point
-        ssize_t ii = (i + direction_matrix[k][0]);
-        ssize_t jj = (j + direction_matrix[k][1]);
-        // Propagate to neighboor nodes
-        if ((ii >= 0 && ii < mesh_out->width) && (jj >= 0 && jj < mesh_out->height)) {
-          Mesh_get_cell(mesh_out, ii, jj)[k] = Mesh_get_cell(mesh_in, i, j)[k];
-        }
+  const int width  = static_cast<int>(mesh_out->width);
+  const int height = static_cast<int>(mesh_out->height);
+
+  // The bulk of the domain can be propagated without bounds checks.
+#pragma omp parallel
+  {
+#pragma omp for schedule(static)
+    for (int i = 1; i < width - 1; i++) {
+      for (int j = 1; j < height - 1; j++) {
+        propagate_cell_inner(mesh_out, mesh_in, i, j);
+      }
+    }
+
+#pragma omp single
+    {
+      for (int j = 0; j < height; j++) {
+        propagate_cell_checked(mesh_out, mesh_in, 0, j, width, height);
+        propagate_cell_checked(mesh_out, mesh_in, width - 1, j, width, height);
+      }
+
+      for (int i = 1; i < width - 1; i++) {
+        propagate_cell_checked(mesh_out, mesh_in, i, 0, width, height);
+        propagate_cell_checked(mesh_out, mesh_in, i, height - 1, width, height);
       }
     }
   }
