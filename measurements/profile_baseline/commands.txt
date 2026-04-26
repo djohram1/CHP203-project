@@ -1,0 +1,5 @@
+# Baseline profiling with macOS sample
+# Date: Sun Apr 26 14:55:59 CEST 2026
+# Command: OMP_NUM_THREADS=4 mpirun -np 1 ./build/top.lbm-exe config.txt
+# Profiler: sample <pid> 20
+exit_code=0
