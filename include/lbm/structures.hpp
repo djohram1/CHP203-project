@@ -4,7 +4,6 @@
 #include <cstdio>
 
 #include <lbm/config.hpp>
-#include <lbm/tpl.hpp>
 
 /// @brief A cell is an array of double `DIRECTIONS` to store microscopic / probabilities (`f_i`).
 typedef double* lbm_mesh_cell_t;

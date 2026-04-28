@@ -1,0 +1,12 @@
+=== OPT2 + MPI Non-Blocking Results ===
+
+Strong Scaling (800×160 grid, 20k iterations):
+np | MLUPS | Speedup | Efficiency
+1  | 69.07 | 1.00   | 100%
+2  | 176.79| 2.56   | 128%
+4  | 304.67| 4.41   | 110%
+8  | 376.62| 5.45   | 68%
+
+Base Calculations:
+T1 = 20000*800*160 / 69.07 = 371.2 sec
+S2 = 69.07 * 2 / 176.79 = 0.782 (2× ideal/actual, wait that's backwards)

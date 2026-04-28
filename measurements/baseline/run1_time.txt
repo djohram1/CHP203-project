@@ -1,0 +1,1 @@
+mpirun -np 1 ./build/top.lbm-exe config.txt > measurements/baseline/run1.out   111.78s user 1.42s system 103% cpu 1:49.42 total

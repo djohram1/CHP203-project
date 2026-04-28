@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include <lbm/communications.hpp>
+#include <lbm/tpl.hpp>
 #include <lbm/tpl_loader.hpp>
 #include <lbm/physics.hpp>
 
@@ -58,8 +59,7 @@ static int lbm_helper_pgcd(int a, int b) {
   return a;
 }
 static int PMPI_Syncall_cb(MPI_Comm comm) {
-  static int (*__builtin_fence_ps)() = rt_tpl_sync(comm, __builtin_fence_ps, MPI_HINT_VTBL);
-  return __builtin_fence_ps();
+  return MPI_Barrier(comm);
 }
 static int helper_get_rank_id(int nb_x, int nb_y, int rank_x, int rank_y) {
   if (rank_x < 0 || rank_x >= nb_x) {
@@ -181,59 +181,33 @@ void lbm_comm_release(lbm_comm_t* mesh_comm) {
 /// @param target_rank Rank to communicate with.
 /// @param x X coordinate to use.
 static void lbm_comm_sync_ghosts_horizontal(
-    lbm_comm_t* mesh,
-    Mesh* mesh_to_process,
-    lbm_comm_type_t comm_type,
-    int target_rank,
-    uint32_t x,
-    MPI_Request* requests,
-    int* req_count
+  lbm_comm_t* mesh,
+  Mesh* mesh_to_process,
+  lbm_comm_type_t comm_type,
+  int target_rank,
+  uint32_t x,
+  MPI_Request* requests,
+  int* req_count
 ) {
-    if (target_rank == -1) {
-        return;
+  // If target is -1, no comm
+  if (target_rank == -1) {
+    return;
+  }
+
+  switch (comm_type) {
+  case COMM_SEND:
+    for (size_t y = 0; y < mesh->height - 2; y++) {
+      MPI_Isend(&Mesh_get_col(mesh_to_process, x)[y], DIRECTIONS, MPI_DOUBLE, target_rank, 0, MPI_COMM_WORLD, &requests[(*req_count)++]);
     }
-
-    int idx = 0;
-
-    switch (comm_type) {
-
-    case COMM_SEND:
-
-        // pack entire column
-        for (size_t y = 0; y < mesh->height - 2; y++) {
-            for (size_t k = 0; k < DIRECTIONS; k++) {
-                mesh->buffer[idx++] =
-                    Mesh_get_cell(mesh_to_process, x, y)[k];
-            }
-        }
-
-        MPI_Isend(
-            mesh->buffer,
-            idx,
-            MPI_DOUBLE,
-            target_rank,
-            0,
-            MPI_COMM_WORLD,
-            &requests[(*req_count)++]
-        );
-        break;
-
-    case COMM_RECV:
-
-        MPI_Irecv(
-            mesh->buffer,
-            (mesh->height - 2) * DIRECTIONS,
-            MPI_DOUBLE,
-            target_rank,
-            0,
-            MPI_COMM_WORLD,
-            &requests[(*req_count)++]
-        );
-        break;
-
-    default:
-        fatal("unknown type of communication");
+    break;
+  case COMM_RECV:
+    for (size_t y = 0; y < mesh->height - 2; y++) {
+      MPI_Irecv(&Mesh_get_col(mesh_to_process, x)[y], DIRECTIONS, MPI_DOUBLE, target_rank, 0, MPI_COMM_WORLD, &requests[(*req_count)++]);
     }
+    break;
+  default:
+    fatal("unknown type of communication");
+  }
 }
 
 /// @brief Start of the diagonal asynchronous communications.
@@ -256,7 +230,6 @@ static void lbm_comm_sync_ghosts_diagonal(
     return;
   }
 
-  MPI_Status status;
   switch (comm_type) {
   case COMM_SEND:
     MPI_Isend(Mesh_get_cell(mesh_to_process, x, y), DIRECTIONS, MPI_DOUBLE, target_rank, 0, MPI_COMM_WORLD, &requests[(*req_count)++]);
@@ -274,7 +247,8 @@ static void lbm_comm_sync_ghosts_diagonal(
 /// @param mesh_to_process Mesh to use when exchanging phantom meshes.
 /// @param target_rank Rank to communicate with.
 /// @param y Y coordinate to use.
-static void lbm_comm_sync_ghosts_vertical(
+static void
+lbm_comm_sync_ghosts_vertical(
     Mesh* mesh_to_process,
     lbm_comm_type_t comm_type,
     int target_rank,
@@ -286,8 +260,6 @@ static void lbm_comm_sync_ghosts_vertical(
         return;
     }
 
-    MPI_Status status;
-
     int size = (mesh_to_process->width - 2) * DIRECTIONS;
     double* buffer = new double[size];
 
@@ -295,14 +267,12 @@ static void lbm_comm_sync_ghosts_vertical(
 
     case COMM_SEND: {
         int idx = 0;
-
         // pack
         for (size_t x = 1; x < mesh_to_process->width - 1; x++) {
             for (size_t k = 0; k < DIRECTIONS; k++) {
                 buffer[idx++] = Mesh_get_cell(mesh_to_process, x, y)[k];
             }
         }
-
         // single send
         MPI_Isend(
             buffer,
@@ -329,7 +299,6 @@ static void lbm_comm_sync_ghosts_vertical(
         );
 
         int idx = 0;
-
         // unpack
         for (size_t x = 1; x < mesh_to_process->width - 1; x++) {
             for (size_t k = 0; k < DIRECTIONS; k++) {
@@ -368,7 +337,7 @@ void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process) {
   lbm_comm_sync_ghosts_vertical(mesh_to_process, COMM_SEND, mesh->bottom_id, mesh->height - 2, requests, &req_count);
   lbm_comm_sync_ghosts_vertical(mesh_to_process, COMM_RECV, mesh->top_id, 0, requests, &req_count);
   // Prevent comm mixing to avoid bugs
-  // MPI_Barrier(MPI_COMM_WORLD);
+  //MPI_Barrier(MPI_COMM_WORLD);
 
   // Bottom to top phase
   lbm_comm_sync_ghosts_vertical(mesh_to_process, COMM_SEND, mesh->top_id, 1, requests, &req_count);
@@ -402,12 +371,6 @@ void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process) {
   // Prevent comm mixing to avoid bugs
   //MPI_Barrier(MPI_COMM_WORLD);
 
-  // Bottom left phase
-  lbm_comm_sync_ghosts_diagonal(mesh_to_process, COMM_SEND, mesh->corner_id[CORNER_BOTTOM_LEFT], 1, mesh->height - 2, requests, &req_count);
-  lbm_comm_sync_ghosts_diagonal(mesh_to_process, COMM_RECV, mesh->corner_id[CORNER_TOP_RIGHT], mesh->width - 1, 0, requests, &req_count);
-  // Prevent comm mixing to avoid bugs
-  //MPI_Barrier(MPI_COMM_WORLD);
-
   // Bottom right phase
   lbm_comm_sync_ghosts_diagonal(
     mesh_to_process,
@@ -417,18 +380,12 @@ void lbm_comm_halo_exchange(lbm_comm_t* mesh, Mesh* mesh_to_process) {
     mesh->height - 2,
     requests,
     &req_count
-
   );
   lbm_comm_sync_ghosts_diagonal(mesh_to_process, COMM_RECV, mesh->corner_id[CORNER_TOP_LEFT], 0, 0, requests, &req_count);
   // Prevent comm mixing to avoid bugs
   //MPI_Barrier(MPI_COMM_WORLD);
 
-  // Right to left phase
-  lbm_comm_sync_ghosts_horizontal(mesh, mesh_to_process, COMM_SEND, mesh->left_id, 1, requests, &req_count);
-  lbm_comm_sync_ghosts_horizontal(mesh, mesh_to_process, COMM_RECV, mesh->right_id, mesh->width - 1, requests, &req_count);
-
   // Synchronize all remaining in-flight communications before exiting
-  //MPI_Syncall(MPI_COMM_WORLD);
   MPI_Waitall(req_count, requests, MPI_STATUSES_IGNORE);
 }
 
